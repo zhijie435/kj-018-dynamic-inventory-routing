@@ -52,7 +52,7 @@ class InventorySource extends Model
             $remainingSources = $channel->inventorySources()
                 ->where('inventory_sources.is_active', true)
                 ->orderByPivot('sort_order')
-                ->orderBy('inventory_sources.priority', 'ASC')
+                ->orderBy('inventory_sources.priority', 'DESC')
                 ->orderBy('inventory_sources.country')
                 ->get();
 

@@ -30,7 +30,7 @@ class Channel extends Model
             ->withPivot(['sort_order', 'is_primary'])
             ->withTimestamps()
             ->orderByPivot('sort_order')
-            ->orderBy('inventory_sources.priority', 'ASC')
+            ->orderBy('inventory_sources.priority', 'DESC')
             ->orderBy('inventory_sources.country');
     }
 
@@ -41,7 +41,7 @@ class Channel extends Model
             ->wherePivot('is_primary', true)
             ->withTimestamps()
             ->orderByPivot('sort_order')
-            ->orderBy('inventory_sources.priority', 'ASC')
+            ->orderBy('inventory_sources.priority', 'DESC')
             ->orderBy('inventory_sources.country')
             ->limit(1);
     }
@@ -159,7 +159,7 @@ class Channel extends Model
             ->where($foreignPivotKey, $this->id)
             ->join('inventory_sources', 'inventory_sources.id', '=', 'inventory_source_id')
             ->orderBy('sort_order')
-            ->orderBy('inventory_sources.priority')
+            ->orderBy('inventory_sources.priority', 'DESC')
             ->orderBy('inventory_sources.country')
             ->select('inventory_source_id', 'sort_order', 'is_primary')
             ->get();
