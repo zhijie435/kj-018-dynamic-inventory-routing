@@ -44,17 +44,17 @@ class InventoryRoutingService
             return null;
         }
 
-        if ($preferredSourceId) {
-            $preferred = $sources->firstWhere('id', $preferredSourceId);
-            if ($preferred) {
-                return $preferred;
-            }
-        }
-
         if ($country) {
             $countryMatch = $sources->firstWhere('country', $country);
             if ($countryMatch) {
                 return $countryMatch;
+            }
+        }
+
+        if ($preferredSourceId) {
+            $preferred = $sources->firstWhere('id', $preferredSourceId);
+            if ($preferred) {
+                return $preferred;
             }
         }
 

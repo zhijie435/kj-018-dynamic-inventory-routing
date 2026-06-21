@@ -176,6 +176,26 @@ class ChannelInventorySourceTest extends TestCase
         $this->assertEquals($brSource->id, $routed->id);
     }
 
+    public function test_inventory_routing_service_country_takes_priority_over_preferred_source()
+    {
+        $channel = Channel::factory()->create();
+        $usSource = InventorySource::factory()->active()->create(['country' => 'US']);
+        $brSource = InventorySource::factory()->active()->create(['country' => 'BR']);
+
+        $channel->syncInventorySources([
+            ['id' => $usSource->id, 'is_primary' => true],
+            ['id' => $brSource->id],
+        ]);
+
+        $routingService = new InventoryRoutingService();
+        $routed = $routingService->getRoutedSource($channel, [
+            'country' => 'BR',
+            'preferred_source_id' => $usSource->id,
+        ]);
+
+        $this->assertEquals($brSource->id, $routed->id);
+    }
+
     public function test_inventory_routing_service_falls_back_to_primary()
     {
         $channel = Channel::factory()->create();
