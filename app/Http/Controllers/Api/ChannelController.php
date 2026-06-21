@@ -9,6 +9,7 @@ use App\Models\Channel;
 use App\Services\InventoryRoutingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ChannelController extends Controller
 {
@@ -27,6 +28,11 @@ class ChannelController extends Controller
             })
             ->orderBy('code')
             ->get();
+
+        foreach ($channels as $channel) {
+            $channel->removeInactiveInventorySources();
+            $channel->load('inventorySources');
+        }
 
         return response()->json([
             'data' => $channels,
@@ -51,6 +57,7 @@ class ChannelController extends Controller
 
     public function show(Channel $channel): JsonResponse
     {
+        $channel->removeInactiveInventorySources();
         $channel->load('inventorySources');
 
         return response()->json([
@@ -85,6 +92,9 @@ class ChannelController extends Controller
 
     public function inventorySources(Channel $channel): JsonResponse
     {
+        $channel->removeInactiveInventorySources();
+        $channel->load('inventorySources');
+
         return response()->json([
             'data' => $channel->inventorySources,
         ]);
@@ -94,7 +104,10 @@ class ChannelController extends Controller
     {
         $validated = $request->validate([
             'inventory_source_ids' => ['required', 'array'],
-            'inventory_source_ids.*.id' => ['required', 'exists:inventory_sources,id'],
+            'inventory_source_ids.*.id' => [
+                'required',
+                Rule::exists('inventory_sources', 'id')->where('is_active', true),
+            ],
             'inventory_source_ids.*.is_primary' => ['nullable', 'boolean'],
             'inventory_source_ids.*.sort_order' => ['nullable', 'integer', 'min:0'],
         ]);

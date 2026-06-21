@@ -24,6 +24,50 @@ class InventorySource extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::updated(function (self $source) {
+            if ($source->isDirty('is_active')) {
+                $wasActive = (bool) $source->getOriginal('is_active');
+                $isActiveNow = (bool) $source->is_active;
+
+                if ($wasActive && !$isActiveNow) {
+                    static::handleDeactivation($source);
+                }
+            }
+        });
+
+        static::deleting(function (self $source) {
+            static::handleDeactivation($source);
+        });
+    }
+
+    protected static function handleDeactivation(self $source): void
+    {
+        $channels = $source->channels()->get();
+
+        $source->channels()->detach();
+
+        foreach ($channels as $channel) {
+            $hasPrimary = $channel->inventorySources()
+                ->wherePivot('is_primary', true)
+                ->exists();
+
+            if (!$hasPrimary) {
+                $firstActive = $channel->inventorySources()
+                    ->where('inventory_sources.is_active', true)
+                    ->orderByPivot('sort_order')
+                    ->first();
+
+                if ($firstActive) {
+                    $channel->inventorySources()->updateExistingPivot($firstActive->id, [
+                        'is_primary' => true,
+                    ]);
+                }
+            }
+        }
+    }
+
     public function channels(): BelongsToMany
     {
         return $this->belongsToMany(Channel::class)

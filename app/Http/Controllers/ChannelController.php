@@ -56,6 +56,7 @@ class ChannelController extends Controller
 
     public function show(Channel $channel): Response
     {
+        $channel->removeInactiveInventorySources();
         $channel->load('inventorySources');
 
         return Inertia::render('Channels/Show', [
@@ -65,20 +66,33 @@ class ChannelController extends Controller
 
     public function edit(Channel $channel): Response
     {
+        $channel->removeInactiveInventorySources();
         $channel->load('inventorySources');
+
+        $activeInventorySources = InventorySource::where('is_active', true)
+            ->orderBy('name')
+            ->get(['id', 'code', 'name', 'type', 'country', 'city']);
+
+        $activeIds = $activeInventorySources->pluck('id')->toArray();
+
+        $boundInventorySourceIds = $channel->inventorySources
+            ->filter(function ($source) use ($activeIds) {
+                return in_array($source->id, $activeIds, true);
+            })
+            ->map(function ($source) {
+                return [
+                    'id' => $source->id,
+                    'is_primary' => (bool) $source->pivot->is_primary,
+                    'sort_order' => $source->pivot->sort_order,
+                ];
+            })
+            ->values()
+            ->toArray();
 
         return Inertia::render('Channels/Edit', [
             'channel' => $channel,
-            'inventorySources' => InventorySource::where('is_active', true)
-                ->orderBy('name')
-                ->get(['id', 'code', 'name', 'type', 'country', 'city']),
-            'boundInventorySourceIds' => $channel->inventorySources->map(function ($source) {
-                return [
-                    'id' => $source->id,
-                    'is_primary' => $source->pivot->is_primary,
-                    'sort_order' => $source->pivot->sort_order,
-                ];
-            })->toArray(),
+            'inventorySources' => $activeInventorySources,
+            'boundInventorySourceIds' => $boundInventorySourceIds,
         ]);
     }
 
