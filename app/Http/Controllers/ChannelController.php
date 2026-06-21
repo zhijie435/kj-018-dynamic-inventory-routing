@@ -38,7 +38,7 @@ class ChannelController extends Controller
         return Inertia::render('Channels/Create', [
             'inventorySources' => InventorySource::where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'code', 'name', 'country', 'city']),
+                ->get(['id', 'code', 'name', 'type', 'country', 'city']),
         ]);
     }
 
@@ -71,7 +71,7 @@ class ChannelController extends Controller
             'channel' => $channel,
             'inventorySources' => InventorySource::where('is_active', true)
                 ->orderBy('name')
-                ->get(['id', 'code', 'name', 'country', 'city']),
+                ->get(['id', 'code', 'name', 'type', 'country', 'city']),
             'boundInventorySourceIds' => $channel->inventorySources->map(function ($source) {
                 return [
                     'id' => $source->id,

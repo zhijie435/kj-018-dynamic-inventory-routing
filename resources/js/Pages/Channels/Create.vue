@@ -44,6 +44,10 @@ function isPrimarySource(sourceId) {
     return source?.is_primary;
 }
 
+function getSelectedIndex(sourceId) {
+    return form.inventory_source_ids.findIndex(s => s.id === sourceId);
+}
+
 function setPrimarySource(sourceId) {
     form.inventory_source_ids.forEach(s => {
         s.is_primary = s.id === sourceId;
