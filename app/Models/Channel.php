@@ -70,18 +70,20 @@ class Channel extends Model
         $currentlyBoundInactive = $this->allInventorySources()
             ->where('inventory_sources.is_active', false)
             ->get(['inventory_sources.id', 'sort_order', 'is_primary'])
+            ->keyBy('id')
             ->map(function ($source) {
                 return [
-                    'id' => $source->id,
                     'sort_order' => $source->pivot->sort_order,
                     'is_primary' => (bool) $source->pivot->is_primary,
                 ];
             })
             ->toArray();
 
-        $merged = array_merge($inventorySourceIds, $currentlyBoundInactive);
+        $this->syncInventorySources($inventorySourceIds);
 
-        $this->syncInventorySources($merged);
+        if (!empty($currentlyBoundInactive)) {
+            $this->allInventorySources()->syncWithoutDetaching($currentlyBoundInactive);
+        }
     }
 
     public function removeInactiveInventorySources(): void

@@ -8,13 +8,13 @@ class InventorySourceUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        $inventorySource = $this->route('inventorySource');
+        $inventorySource = $this->route('inventory_source');
         return $this->user()?->can('update', $inventorySource) ?? false;
     }
 
     public function rules(): array
     {
-        $inventorySourceId = $this->route('inventorySource')?->id ?? $this->route('inventorySource');
+        $inventorySourceId = $this->route('inventory_source')?->id ?? $this->route('inventory_source');
 
         return [
             'code' => ['required', 'string', 'max:32', 'unique:inventory_sources,code,' . $inventorySourceId],
