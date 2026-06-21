@@ -1,0 +1,28 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('channels', function (Blueprint $table) {
+            $table->id();
+            $table->string('code', 32)->unique();
+            $table->string('name');
+            $table->string('region', 32)->nullable()->index();
+            $table->string('currency', 8)->default('USD');
+            $table->string('locale', 16)->default('en_US');
+            $table->text('description')->nullable();
+            $table->boolean('is_active')->default(true)->index();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('channels');
+    }
+};
