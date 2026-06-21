@@ -13,6 +13,8 @@ class InventoryRoutingService
         return $channel->inventorySources()
             ->where('inventory_sources.is_active', true)
             ->orderByPivot('sort_order')
+            ->orderBy('inventory_sources.priority', 'ASC')
+            ->orderBy('inventory_sources.country')
             ->get();
     }
 
@@ -34,6 +36,8 @@ class InventoryRoutingService
         $sources = $channel->inventorySources()
             ->where('inventory_sources.is_active', true)
             ->orderByPivot('sort_order')
+            ->orderBy('inventory_sources.priority', 'ASC')
+            ->orderBy('inventory_sources.country')
             ->get();
 
         if ($sources->isEmpty()) {
@@ -96,6 +100,8 @@ class InventoryRoutingService
         return $channel->inventorySources()
             ->where('inventory_sources.is_active', true)
             ->orderByPivot('sort_order')
+            ->orderBy('inventory_sources.priority', 'ASC')
+            ->orderBy('inventory_sources.country')
             ->get()
             ->map(function ($source) {
                 return [

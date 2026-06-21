@@ -29,7 +29,9 @@ class Channel extends Model
         return $this->belongsToMany(InventorySource::class)
             ->withPivot(['sort_order', 'is_primary'])
             ->withTimestamps()
-            ->orderByPivot('sort_order');
+            ->orderByPivot('sort_order')
+            ->orderBy('inventory_sources.priority', 'ASC')
+            ->orderBy('inventory_sources.country');
     }
 
     public function primaryInventorySource()
@@ -38,6 +40,9 @@ class Channel extends Model
             ->withPivot(['sort_order', 'is_primary'])
             ->wherePivot('is_primary', true)
             ->withTimestamps()
+            ->orderByPivot('sort_order')
+            ->orderBy('inventory_sources.priority', 'ASC')
+            ->orderBy('inventory_sources.country')
             ->limit(1);
     }
 
@@ -148,6 +153,8 @@ class Channel extends Model
             $firstActive = $this->inventorySources()
                 ->where('inventory_sources.is_active', true)
                 ->orderByPivot('sort_order')
+                ->orderBy('inventory_sources.priority', 'ASC')
+                ->orderBy('inventory_sources.country')
                 ->first();
 
             if ($firstActive) {
