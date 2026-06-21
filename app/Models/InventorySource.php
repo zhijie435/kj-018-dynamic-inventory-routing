@@ -49,23 +49,34 @@ class InventorySource extends Model
         $source->channels()->detach();
 
         foreach ($channels as $channel) {
-            $hasPrimary = $channel->inventorySources()
-                ->wherePivot('is_primary', true)
-                ->exists();
+            $remainingSources = $channel->inventorySources()
+                ->where('inventory_sources.is_active', true)
+                ->orderByPivot('sort_order')
+                ->orderBy('inventory_sources.priority', 'ASC')
+                ->orderBy('inventory_sources.country')
+                ->get();
 
-            if (!$hasPrimary) {
-                $firstActive = $channel->inventorySources()
-                    ->where('inventory_sources.is_active', true)
-                    ->orderByPivot('sort_order')
-                    ->orderBy('inventory_sources.priority', 'ASC')
-                    ->orderBy('inventory_sources.country')
-                    ->first();
+            $primaryFound = false;
 
-                if ($firstActive) {
-                    $channel->inventorySources()->updateExistingPivot($firstActive->id, [
-                        'is_primary' => true,
-                    ]);
+            foreach ($remainingSources as $index => $remainingSource) {
+                $isPrimary = (bool) $remainingSource->pivot->is_primary;
+                if ($isPrimary && !$primaryFound) {
+                    $primaryFound = true;
+                } elseif ($isPrimary && $primaryFound) {
+                    $isPrimary = false;
                 }
+
+                $channel->inventorySources()->updateExistingPivot($remainingSource->id, [
+                    'sort_order' => $index,
+                    'is_primary' => $isPrimary,
+                ]);
+            }
+
+            if (!$primaryFound && $remainingSources->isNotEmpty()) {
+                $firstSource = $remainingSources->first();
+                $channel->inventorySources()->updateExistingPivot($firstSource->id, [
+                    'is_primary' => true,
+                ]);
             }
         }
     }

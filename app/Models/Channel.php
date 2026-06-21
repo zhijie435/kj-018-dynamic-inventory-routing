@@ -134,34 +134,75 @@ class Channel extends Model
 
     public function removeInactiveInventorySources(): void
     {
-        $inactiveIds = $this->inventorySources()
-            ->where('inventory_sources.is_active', false)
-            ->pluck('inventory_sources.id')
-            ->toArray();
+        $pivotTable = $this->inventorySources()->getTable();
+        $foreignPivotKey = $this->inventorySources()->getForeignPivotKeyName();
 
-        if (empty($inactiveIds)) {
+        $allRows = \DB::table($pivotTable)
+            ->where($foreignPivotKey, $this->id)
+            ->join('inventory_sources', 'inventory_sources.id', '=', 'inventory_source_id')
+            ->orderBy('sort_order')
+            ->select('inventory_source_id', 'sort_order', 'is_primary', 'inventory_sources.is_active')
+            ->get();
+
+        $inactiveIds = $allRows->filter(function ($row) {
+            return !$row->is_active;
+        })->pluck('inventory_source_id')->toArray();
+
+        if (!empty($inactiveIds)) {
+            \DB::table($pivotTable)
+                ->where($foreignPivotKey, $this->id)
+                ->whereIn('inventory_source_id', $inactiveIds)
+                ->delete();
+        }
+
+        $remainingRows = \DB::table($pivotTable)
+            ->where($foreignPivotKey, $this->id)
+            ->join('inventory_sources', 'inventory_sources.id', '=', 'inventory_source_id')
+            ->orderBy('sort_order')
+            ->orderBy('inventory_sources.priority')
+            ->orderBy('inventory_sources.country')
+            ->select('inventory_source_id', 'sort_order', 'is_primary')
+            ->get();
+
+        $needsReindex = false;
+        foreach ($remainingRows as $index => $row) {
+            if ($row->sort_order != $index) {
+                $needsReindex = true;
+                break;
+            }
+        }
+
+        if (empty($inactiveIds) && !$needsReindex) {
             return;
         }
 
-        $this->inventorySources()->detach($inactiveIds);
+        $primaryFound = false;
 
-        $hasPrimary = $this->inventorySources()
-            ->wherePivot('is_primary', true)
-            ->exists();
+        foreach ($remainingRows as $index => $row) {
+            $isPrimary = (bool) $row->is_primary;
+            if ($isPrimary && !$primaryFound) {
+                $primaryFound = true;
+            } elseif ($isPrimary && $primaryFound) {
+                $isPrimary = false;
+            }
 
-        if (!$hasPrimary) {
-            $firstActive = $this->inventorySources()
-                ->where('inventory_sources.is_active', true)
-                ->orderByPivot('sort_order')
-                ->orderBy('inventory_sources.priority', 'ASC')
-                ->orderBy('inventory_sources.country')
-                ->first();
+            \DB::table($pivotTable)
+                ->where($foreignPivotKey, $this->id)
+                ->where('inventory_source_id', $row->inventory_source_id)
+                ->update([
+                    'sort_order' => $index,
+                    'is_primary' => $isPrimary,
+                ]);
+        }
 
-            if ($firstActive) {
-                $this->inventorySources()->updateExistingPivot($firstActive->id, [
+        if (!$primaryFound && $remainingRows->isNotEmpty()) {
+            $firstRow = $remainingRows->first();
+            \DB::table($pivotTable)
+                ->where($foreignPivotKey, $this->id)
+                ->where('inventory_source_id', $firstRow->inventory_source_id)
+                ->update([
                     'is_primary' => true,
                 ]);
-            }
         }
     }
 

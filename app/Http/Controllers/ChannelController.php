@@ -79,14 +79,14 @@ class ChannelController extends Controller
             ->filter(function ($source) use ($activeIds) {
                 return in_array($source->id, $activeIds, true);
             })
-            ->map(function ($source) {
+            ->values()
+            ->map(function ($source, $index) {
                 return [
                     'id' => $source->id,
                     'is_primary' => (bool) $source->pivot->is_primary,
-                    'sort_order' => $source->pivot->sort_order,
+                    'sort_order' => $index,
                 ];
             })
-            ->values()
             ->toArray();
 
         return Inertia::render('Channels/Edit', [

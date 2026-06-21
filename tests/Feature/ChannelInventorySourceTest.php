@@ -254,4 +254,184 @@ class ChannelInventorySourceTest extends TestCase
 
         $this->assertCount(0, $available);
     }
+
+    public function test_remove_inactive_sources_recalculates_sort_order_continuously()
+    {
+        $channel = Channel::factory()->create();
+        $source1 = InventorySource::factory()->active()->create();
+        $source2 = InventorySource::factory()->active()->create();
+        $source3 = InventorySource::factory()->active()->create();
+        $source4 = InventorySource::factory()->active()->create();
+        $source5 = InventorySource::factory()->active()->create();
+
+        $channel->syncInventorySources([
+            ['id' => $source1->id, 'sort_order' => 0, 'is_primary' => true],
+            ['id' => $source2->id, 'sort_order' => 1],
+            ['id' => $source3->id, 'sort_order' => 2],
+            ['id' => $source4->id, 'sort_order' => 3],
+            ['id' => $source5->id, 'sort_order' => 4],
+        ]);
+
+        \DB::table('channel_inventory_source')
+            ->where('channel_id', $channel->id)
+            ->where('inventory_source_id', $source2->id)
+            ->delete();
+        \DB::table('channel_inventory_source')
+            ->where('channel_id', $channel->id)
+            ->where('inventory_source_id', $source4->id)
+            ->delete();
+
+        $channel->removeInactiveInventorySources();
+        $channel = $channel->fresh()->load('inventorySources');
+
+        $this->assertCount(3, $channel->inventorySources);
+
+        $sortOrders = $channel->inventorySources->pluck('pivot.sort_order')->toArray();
+        $this->assertEquals([0, 1, 2], $sortOrders);
+
+        $ids = $channel->inventorySources->pluck('id')->toArray();
+        $this->assertEquals([$source1->id, $source3->id, $source5->id], $ids);
+
+        $primarySource = $channel->inventorySources->firstWhere('pivot.is_primary', true);
+        $this->assertEquals($source1->id, $primarySource->id);
+    }
+
+    public function test_remove_inactive_sources_maintains_primary_when_primary_is_active()
+    {
+        $channel = Channel::factory()->create();
+        $source1 = InventorySource::factory()->active()->create();
+        $source2 = InventorySource::factory()->active()->create();
+        $source3 = InventorySource::factory()->active()->create();
+
+        $channel->syncInventorySources([
+            ['id' => $source1->id, 'sort_order' => 0, 'is_primary' => true],
+            ['id' => $source2->id, 'sort_order' => 1],
+            ['id' => $source3->id, 'sort_order' => 2],
+        ]);
+
+        \DB::table('channel_inventory_source')
+            ->where('channel_id', $channel->id)
+            ->where('inventory_source_id', $source2->id)
+            ->delete();
+
+        $channel->removeInactiveInventorySources();
+        $channel = $channel->fresh()->load('inventorySources');
+
+        $primarySource = $channel->inventorySources->firstWhere('pivot.is_primary', true);
+        $this->assertEquals($source1->id, $primarySource->id);
+
+        $sortOrders = $channel->inventorySources->pluck('pivot.sort_order')->toArray();
+        $this->assertEquals([0, 1], $sortOrders);
+    }
+
+    public function test_remove_inactive_sources_sets_new_primary_when_primary_was_removed()
+    {
+        $channel = Channel::factory()->create();
+        $source1 = InventorySource::factory()->active()->create();
+        $source2 = InventorySource::factory()->active()->create();
+        $source3 = InventorySource::factory()->active()->create();
+
+        $channel->syncInventorySources([
+            ['id' => $source1->id, 'sort_order' => 0, 'is_primary' => true],
+            ['id' => $source2->id, 'sort_order' => 1],
+            ['id' => $source3->id, 'sort_order' => 2],
+        ]);
+
+        \DB::table('channel_inventory_source')
+            ->where('channel_id', $channel->id)
+            ->where('inventory_source_id', $source1->id)
+            ->delete();
+
+        $channel->removeInactiveInventorySources();
+        $channel = $channel->fresh()->load('inventorySources');
+
+        $this->assertCount(2, $channel->inventorySources);
+
+        $primarySource = $channel->inventorySources->firstWhere('pivot.is_primary', true);
+        $this->assertEquals($source2->id, $primarySource->id);
+
+        $sortOrders = $channel->inventorySources->pluck('pivot.sort_order')->toArray();
+        $this->assertEquals([0, 1], $sortOrders);
+    }
+
+    public function test_inventory_source_deactivation_recalculates_sort_order()
+    {
+        $channel = Channel::factory()->create();
+        $source1 = InventorySource::factory()->active()->create();
+        $source2 = InventorySource::factory()->active()->create();
+        $source3 = InventorySource::factory()->active()->create();
+        $source4 = InventorySource::factory()->active()->create();
+        $source5 = InventorySource::factory()->active()->create();
+
+        $channel->syncInventorySources([
+            ['id' => $source1->id, 'sort_order' => 0, 'is_primary' => true],
+            ['id' => $source2->id, 'sort_order' => 1],
+            ['id' => $source3->id, 'sort_order' => 2],
+            ['id' => $source4->id, 'sort_order' => 3],
+            ['id' => $source5->id, 'sort_order' => 4],
+        ]);
+
+        $source2->update(['is_active' => false]);
+        $source4->update(['is_active' => false]);
+
+        $channel = $channel->fresh()->load('inventorySources');
+
+        $this->assertCount(3, $channel->inventorySources);
+
+        $sortOrders = $channel->inventorySources->pluck('pivot.sort_order')->toArray();
+        $this->assertEquals([0, 1, 2], $sortOrders);
+
+        $ids = $channel->inventorySources->pluck('id')->toArray();
+        $this->assertEquals([$source1->id, $source3->id, $source5->id], $ids);
+    }
+
+    public function test_inventory_source_deactivation_maintains_primary_when_primary_is_active()
+    {
+        $channel = Channel::factory()->create();
+        $source1 = InventorySource::factory()->active()->create();
+        $source2 = InventorySource::factory()->active()->create();
+        $source3 = InventorySource::factory()->active()->create();
+
+        $channel->syncInventorySources([
+            ['id' => $source1->id, 'sort_order' => 0, 'is_primary' => true],
+            ['id' => $source2->id, 'sort_order' => 1],
+            ['id' => $source3->id, 'sort_order' => 2],
+        ]);
+
+        $source2->update(['is_active' => false]);
+
+        $channel = $channel->fresh()->load('inventorySources');
+
+        $primarySource = $channel->inventorySources->firstWhere('pivot.is_primary', true);
+        $this->assertEquals($source1->id, $primarySource->id);
+
+        $sortOrders = $channel->inventorySources->pluck('pivot.sort_order')->toArray();
+        $this->assertEquals([0, 1], $sortOrders);
+    }
+
+    public function test_inventory_source_deactivation_sets_new_primary_when_primary_was_deactivated()
+    {
+        $channel = Channel::factory()->create();
+        $source1 = InventorySource::factory()->active()->create();
+        $source2 = InventorySource::factory()->active()->create();
+        $source3 = InventorySource::factory()->active()->create();
+
+        $channel->syncInventorySources([
+            ['id' => $source1->id, 'sort_order' => 0, 'is_primary' => true],
+            ['id' => $source2->id, 'sort_order' => 1],
+            ['id' => $source3->id, 'sort_order' => 2],
+        ]);
+
+        $source1->update(['is_active' => false]);
+
+        $channel = $channel->fresh()->load('inventorySources');
+
+        $this->assertCount(2, $channel->inventorySources);
+
+        $primarySource = $channel->inventorySources->firstWhere('pivot.is_primary', true);
+        $this->assertEquals($source2->id, $primarySource->id);
+
+        $sortOrders = $channel->inventorySources->pluck('pivot.sort_order')->toArray();
+        $this->assertEquals([0, 1], $sortOrders);
+    }
 }

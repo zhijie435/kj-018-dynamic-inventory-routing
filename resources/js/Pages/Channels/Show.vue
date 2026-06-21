@@ -112,7 +112,7 @@ const props = defineProps({
                                                 class="flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold"
                                                 :class="source.pivot.is_primary ? 'bg-indigo-600 text-white' : 'bg-gray-200 text-gray-600'"
                                             >
-                                                {{ index + 1 }}
+                                                {{ source.pivot.sort_order + 1 }}
                                             </div>
                                             <div>
                                                 <div class="flex items-center gap-2">

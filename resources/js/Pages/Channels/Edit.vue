@@ -68,6 +68,11 @@ function getSelectedIndex(sourceId) {
     return form.inventory_source_ids.findIndex(s => s.id === sourceId);
 }
 
+function getSortOrder(sourceId) {
+    const source = form.inventory_source_ids.find(s => s.id === sourceId);
+    return source?.sort_order ?? 0;
+}
+
 function moveSource(sourceId, direction) {
     const index = form.inventory_source_ids.findIndex(s => s.id === sourceId);
     if (index === -1) return;
@@ -279,7 +284,7 @@ function deleteChannel() {
 
                                     <div v-if="isSourceSelected(source.id)" class="flex items-center gap-2">
                                         <span class="text-xs text-gray-500">
-                                            Priority #{{ getSelectedIndex(source.id) + 1 }}
+                                            Priority #{{ getSortOrder(source.id) + 1 }}
                                         </span>
                                         <button
                                             type="button"
@@ -294,7 +299,7 @@ function deleteChannel() {
                                             <button
                                                 type="button"
                                                 @click="moveSource(source.id, 'up')"
-                                                :disabled="getSelectedIndex(source.id) <= 0"
+                                                :disabled="getSortOrder(source.id) <= 0"
                                                 class="rounded px-1 text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
                                             >
                                                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -304,7 +309,7 @@ function deleteChannel() {
                                             <button
                                                 type="button"
                                                 @click="moveSource(source.id, 'down')"
-                                                :disabled="getSelectedIndex(source.id) >= form.inventory_source_ids.length - 1"
+                                                :disabled="getSortOrder(source.id) >= form.inventory_source_ids.length - 1"
                                                 class="rounded px-1 text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:cursor-not-allowed"
                                             >
                                                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
