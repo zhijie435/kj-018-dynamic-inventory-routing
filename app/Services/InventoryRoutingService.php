@@ -28,6 +28,13 @@ class InventoryRoutingService
 
     public function getRoutedSource(Channel $channel, array $options = []): ?InventorySource
     {
+        $result = $this->getRoutedSourceWithMeta($channel, $options);
+
+        return $result['source'] ?? null;
+    }
+
+    public function getRoutedSourceWithMeta(Channel $channel, array $options = []): array
+    {
         $preferredSourceId = $options['preferred_source_id'] ?? null;
         $country = $options['country'] ?? null;
         $city = $options['city'] ?? null;
@@ -41,20 +48,49 @@ class InventoryRoutingService
             ->get();
 
         if ($sources->isEmpty()) {
-            return null;
+            return [
+                'source' => null,
+                'route_type' => 'none',
+                'is_moq_direct' => false,
+                'fallback_to_cn' => false,
+            ];
         }
 
         if ($country) {
             $countryMatch = $sources->firstWhere('country', $country);
             if ($countryMatch) {
-                return $countryMatch;
+                return [
+                    'source' => $countryMatch,
+                    'route_type' => 'country_match',
+                    'is_moq_direct' => false,
+                    'fallback_to_cn' => false,
+                    'matched_country' => $country,
+                ];
+            }
+
+            $cnMatch = $sources->firstWhere('country', 'CN');
+            if ($cnMatch) {
+                return [
+                    'source' => $cnMatch,
+                    'route_type' => 'cn_moq_fallback',
+                    'is_moq_direct' => true,
+                    'fallback_to_cn' => true,
+                    'requested_country' => $country,
+                    'matched_country' => 'CN',
+                ];
             }
         }
 
         if ($preferredSourceId) {
             $preferred = $sources->firstWhere('id', $preferredSourceId);
             if ($preferred) {
-                return $preferred;
+                return [
+                    'source' => $preferred,
+                    'route_type' => 'preferred_source',
+                    'is_moq_direct' => false,
+                    'fallback_to_cn' => false,
+                    'preferred_source_id' => $preferredSourceId,
+                ];
             }
         }
 
@@ -63,16 +99,32 @@ class InventoryRoutingService
                 return $source->priority >= $minPriority;
             });
             if ($priorityMatch) {
-                return $priorityMatch;
+                return [
+                    'source' => $priorityMatch,
+                    'route_type' => 'priority_match',
+                    'is_moq_direct' => false,
+                    'fallback_to_cn' => false,
+                    'min_priority' => $minPriority,
+                ];
             }
         }
 
         $primary = $sources->firstWhere('pivot.is_primary', true);
         if ($primary) {
-            return $primary;
+            return [
+                'source' => $primary,
+                'route_type' => 'primary',
+                'is_moq_direct' => false,
+                'fallback_to_cn' => false,
+            ];
         }
 
-        return $sources->first();
+        return [
+            'source' => $sources->first(),
+            'route_type' => 'first_available',
+            'is_moq_direct' => false,
+            'fallback_to_cn' => false,
+        ];
     }
 
     public function getSourceWithFallback(Channel $channel, int $inventorySourceId): ?InventorySource

@@ -147,10 +147,15 @@ class ChannelController extends Controller
             'min_priority' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $source = $routingService->getRoutedSource($channel, $validated);
+        $result = $routingService->getRoutedSourceWithMeta($channel, $validated);
 
         return response()->json([
-            'data' => $source,
+            'data' => $result['source'],
+            'meta' => [
+                'route_type' => $result['route_type'],
+                'is_moq_direct' => $result['is_moq_direct'],
+                'fallback_to_cn' => $result['fallback_to_cn'],
+            ] + array_intersect_key($result, array_flip(['requested_country', 'matched_country', 'preferred_source_id', 'min_priority'])),
         ]);
     }
 

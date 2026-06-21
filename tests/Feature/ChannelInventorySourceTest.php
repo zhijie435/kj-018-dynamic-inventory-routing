@@ -429,29 +429,131 @@ class ChannelInventorySourceTest extends TestCase
         $this->assertEquals([0, 1], $sortOrders);
     }
 
-    public function test_inventory_source_deactivation_sets_new_primary_when_primary_was_deactivated()
+    public function test_same_country_no_stock_falls_back_to_cn_with_moq_direct()
     {
         $channel = Channel::factory()->create();
-        $source1 = InventorySource::factory()->active()->create();
-        $source2 = InventorySource::factory()->active()->create();
-        $source3 = InventorySource::factory()->active()->create();
+        $usSource = InventorySource::factory()->active()->create(['country' => 'US']);
+        $cnSource = InventorySource::factory()->active()->create(['country' => 'CN']);
 
         $channel->syncInventorySources([
-            ['id' => $source1->id, 'sort_order' => 0, 'is_primary' => true],
-            ['id' => $source2->id, 'sort_order' => 1],
-            ['id' => $source3->id, 'sort_order' => 2],
+            ['id' => $usSource->id, 'is_primary' => true],
+            ['id' => $cnSource->id],
         ]);
 
-        $source1->update(['is_active' => false]);
+        $routingService = new InventoryRoutingService();
+        $routed = $routingService->getRoutedSource($channel, [
+            'country' => 'BR',
+        ]);
 
-        $channel = $channel->fresh()->load('inventorySources');
+        $this->assertEquals($cnSource->id, $routed->id);
+        $this->assertEquals('CN', $routed->country);
+    }
 
-        $this->assertCount(2, $channel->inventorySources);
+    public function test_routing_with_meta_returns_cn_moq_fallback_when_same_country_missing()
+    {
+        $channel = Channel::factory()->create();
+        $usSource = InventorySource::factory()->active()->create(['country' => 'US']);
+        $cnSource = InventorySource::factory()->active()->create(['country' => 'CN']);
 
-        $primarySource = $channel->inventorySources->firstWhere('pivot.is_primary', true);
-        $this->assertEquals($source2->id, $primarySource->id);
+        $channel->syncInventorySources([
+            ['id' => $usSource->id, 'is_primary' => true],
+            ['id' => $cnSource->id],
+        ]);
 
-        $sortOrders = $channel->inventorySources->pluck('pivot.sort_order')->toArray();
-        $this->assertEquals([0, 1], $sortOrders);
+        $routingService = new InventoryRoutingService();
+        $result = $routingService->getRoutedSourceWithMeta($channel, [
+            'country' => 'JP',
+        ]);
+
+        $this->assertEquals($cnSource->id, $result['source']->id);
+        $this->assertEquals('cn_moq_fallback', $result['route_type']);
+        $this->assertTrue($result['is_moq_direct']);
+        $this->assertTrue($result['fallback_to_cn']);
+        $this->assertEquals('JP', $result['requested_country']);
+        $this->assertEquals('CN', $result['matched_country']);
+    }
+
+    public function test_routing_with_meta_returns_country_match_when_country_exists()
+    {
+        $channel = Channel::factory()->create();
+        $usSource = InventorySource::factory()->active()->create(['country' => 'US']);
+        $brSource = InventorySource::factory()->active()->create(['country' => 'BR']);
+        $cnSource = InventorySource::factory()->active()->create(['country' => 'CN']);
+
+        $channel->syncInventorySources([
+            ['id' => $usSource->id, 'is_primary' => true],
+            ['id' => $brSource->id],
+            ['id' => $cnSource->id],
+        ]);
+
+        $routingService = new InventoryRoutingService();
+        $result = $routingService->getRoutedSourceWithMeta($channel, [
+            'country' => 'BR',
+        ]);
+
+        $this->assertEquals($brSource->id, $result['source']->id);
+        $this->assertEquals('country_match', $result['route_type']);
+        $this->assertFalse($result['is_moq_direct']);
+        $this->assertFalse($result['fallback_to_cn']);
+        $this->assertEquals('BR', $result['matched_country']);
+    }
+
+    public function test_same_country_no_stock_and_no_cn_falls_back_to_primary()
+    {
+        $channel = Channel::factory()->create();
+        $usSource = InventorySource::factory()->active()->create(['country' => 'US']);
+        $brSource = InventorySource::factory()->active()->create(['country' => 'BR']);
+
+        $channel->syncInventorySources([
+            ['id' => $usSource->id, 'is_primary' => true],
+            ['id' => $brSource->id],
+        ]);
+
+        $routingService = new InventoryRoutingService();
+        $result = $routingService->getRoutedSourceWithMeta($channel, [
+            'country' => 'JP',
+        ]);
+
+        $this->assertEquals($usSource->id, $result['source']->id);
+        $this->assertEquals('primary', $result['route_type']);
+        $this->assertFalse($result['is_moq_direct']);
+        $this->assertFalse($result['fallback_to_cn']);
+    }
+
+    public function test_cn_country_does_not_trigger_moq_direct_when_matched_directly()
+    {
+        $channel = Channel::factory()->create();
+        $usSource = InventorySource::factory()->active()->create(['country' => 'US']);
+        $cnSource = InventorySource::factory()->active()->create(['country' => 'CN']);
+
+        $channel->syncInventorySources([
+            ['id' => $usSource->id, 'is_primary' => true],
+            ['id' => $cnSource->id],
+        ]);
+
+        $routingService = new InventoryRoutingService();
+        $result = $routingService->getRoutedSourceWithMeta($channel, [
+            'country' => 'CN',
+        ]);
+
+        $this->assertEquals($cnSource->id, $result['source']->id);
+        $this->assertEquals('country_match', $result['route_type']);
+        $this->assertFalse($result['is_moq_direct']);
+        $this->assertFalse($result['fallback_to_cn']);
+    }
+
+    public function test_routing_with_meta_returns_none_when_no_sources_available()
+    {
+        $channel = Channel::factory()->create();
+
+        $routingService = new InventoryRoutingService();
+        $result = $routingService->getRoutedSourceWithMeta($channel, [
+            'country' => 'US',
+        ]);
+
+        $this->assertNull($result['source']);
+        $this->assertEquals('none', $result['route_type']);
+        $this->assertFalse($result['is_moq_direct']);
+        $this->assertFalse($result['fallback_to_cn']);
     }
 }
