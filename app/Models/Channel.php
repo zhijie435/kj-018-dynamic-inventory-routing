@@ -29,6 +29,17 @@ class Channel extends Model
         return $this->belongsToMany(InventorySource::class)
             ->withPivot(['sort_order', 'is_primary'])
             ->withTimestamps()
+            ->where('inventory_sources.is_active', true)
+            ->orderByPivot('sort_order')
+            ->orderBy('inventory_sources.priority', 'DESC')
+            ->orderBy('inventory_sources.country');
+    }
+
+    public function allInventorySources(): BelongsToMany
+    {
+        return $this->belongsToMany(InventorySource::class)
+            ->withPivot(['sort_order', 'is_primary'])
+            ->withTimestamps()
             ->orderByPivot('sort_order')
             ->orderBy('inventory_sources.priority', 'DESC')
             ->orderBy('inventory_sources.country');
@@ -39,6 +50,7 @@ class Channel extends Model
         return $this->belongsToMany(InventorySource::class)
             ->withPivot(['sort_order', 'is_primary'])
             ->wherePivot('is_primary', true)
+            ->where('inventory_sources.is_active', true)
             ->withTimestamps()
             ->orderByPivot('sort_order')
             ->orderBy('inventory_sources.priority', 'DESC')
@@ -110,12 +122,12 @@ class Channel extends Model
             $syncData[$firstKey]['is_primary'] = true;
         }
 
-        $this->inventorySources()->sync($syncData);
+        $this->allInventorySources()->sync($syncData);
     }
 
     public function syncInventorySourcesPreservingInactive(array $inventorySourceIds): void
     {
-        $currentlyBoundInactive = $this->inventorySources()
+        $currentlyBoundInactive = $this->allInventorySources()
             ->where('inventory_sources.is_active', false)
             ->get(['inventory_sources.id', 'sort_order', 'is_primary'])
             ->map(function ($source) {
@@ -134,8 +146,8 @@ class Channel extends Model
 
     public function removeInactiveInventorySources(): void
     {
-        $pivotTable = $this->inventorySources()->getTable();
-        $foreignPivotKey = $this->inventorySources()->getForeignPivotKeyName();
+        $pivotTable = $this->allInventorySources()->getTable();
+        $foreignPivotKey = $this->allInventorySources()->getForeignPivotKeyName();
 
         $allRows = \DB::table($pivotTable)
             ->where($foreignPivotKey, $this->id)

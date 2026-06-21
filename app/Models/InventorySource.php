@@ -50,7 +50,6 @@ class InventorySource extends Model
 
         foreach ($channels as $channel) {
             $remainingSources = $channel->inventorySources()
-                ->where('inventory_sources.is_active', true)
                 ->orderByPivot('sort_order')
                 ->orderBy('inventory_sources.priority', 'DESC')
                 ->orderBy('inventory_sources.country')
@@ -66,7 +65,7 @@ class InventorySource extends Model
                     $isPrimary = false;
                 }
 
-                $channel->inventorySources()->updateExistingPivot($remainingSource->id, [
+                $channel->allInventorySources()->updateExistingPivot($remainingSource->id, [
                     'sort_order' => $index,
                     'is_primary' => $isPrimary,
                 ]);
@@ -74,7 +73,7 @@ class InventorySource extends Model
 
             if (!$primaryFound && $remainingSources->isNotEmpty()) {
                 $firstSource = $remainingSources->first();
-                $channel->inventorySources()->updateExistingPivot($firstSource->id, [
+                $channel->allInventorySources()->updateExistingPivot($firstSource->id, [
                     'is_primary' => true,
                 ]);
             }
