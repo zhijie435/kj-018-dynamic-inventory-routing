@@ -5,43 +5,43 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\ChannelStoreRequest;
 use App\Http\Requests\ChannelUpdateRequest;
+use App\Http\Traits\ApiResponse;
 use App\Models\Channel;
+use App\Repositories\ChannelRepository;
 use App\Services\InventoryRoutingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 
 class ChannelController extends Controller
 {
+    use ApiResponse;
+
+    public function __construct(
+        protected ChannelRepository $channelRepository,
+        protected InventoryRoutingService $routingService
+    ) {
+    }
+
     public function index(Request $request): JsonResponse
     {
-        $channels = Channel::with('inventorySources')
-            ->when($request->input('search'), function ($query, $search) {
-                $query->where('name', 'like', "%{$search}%")
-                    ->orWhere('code', 'like', "%{$search}%");
-            })
-            ->when($request->input('region'), function ($query, $region) {
-                $query->where('region', $region);
-            })
-            ->when($request->filled('is_active'), function ($query) use ($request) {
-                $query->where('is_active', $request->boolean('is_active'));
-            })
-            ->orderBy('code')
-            ->get();
+        Gate::authorize('viewAny', Channel::class);
+
+        $channels = $this->channelRepository->search($request, ['inventorySources']);
 
         foreach ($channels as $channel) {
             $channel->removeInactiveInventorySources();
-            $channel->load('inventorySources');
         }
 
-        return response()->json([
-            'data' => $channels,
-        ]);
+        $channels->load('inventorySources');
+
+        return $this->successResponse($channels);
     }
 
     public function store(ChannelStoreRequest $request): JsonResponse
     {
-        $channel = Channel::create($request->validated());
+        $channel = $this->channelRepository->create($request->validated());
 
         if ($request->filled('inventory_source_ids')) {
             $channel->syncInventorySources($request->input('inventory_source_ids'));
@@ -49,25 +49,22 @@ class ChannelController extends Controller
 
         $channel->load('inventorySources');
 
-        return response()->json([
-            'message' => 'Channel created successfully.',
-            'data' => $channel,
-        ], 201);
+        return $this->createdResponse($channel, 'Channel created successfully.');
     }
 
     public function show(Channel $channel): JsonResponse
     {
+        Gate::authorize('view', $channel);
+
         $channel->removeInactiveInventorySources();
         $channel->load('inventorySources');
 
-        return response()->json([
-            'data' => $channel,
-        ]);
+        return $this->successResponse($channel);
     }
 
     public function update(ChannelUpdateRequest $request, Channel $channel): JsonResponse
     {
-        $channel->update($request->validated());
+        $this->channelRepository->update($channel, $request->validated());
 
         if ($request->has('inventory_source_ids')) {
             $channel->syncInventorySources($request->input('inventory_source_ids'));
@@ -75,33 +72,32 @@ class ChannelController extends Controller
 
         $channel->load('inventorySources');
 
-        return response()->json([
-            'message' => 'Channel updated successfully.',
-            'data' => $channel,
-        ]);
+        return $this->successResponse($channel, 'Channel updated successfully.');
     }
 
     public function destroy(Channel $channel): JsonResponse
     {
-        $channel->delete();
+        Gate::authorize('delete', $channel);
 
-        return response()->json([
-            'message' => 'Channel deleted successfully.',
-        ]);
+        $this->channelRepository->delete($channel);
+
+        return $this->deletedResponse('Channel deleted successfully.');
     }
 
     public function inventorySources(Channel $channel): JsonResponse
     {
+        Gate::authorize('view', $channel);
+
         $channel->removeInactiveInventorySources();
         $channel->load('inventorySources');
 
-        return response()->json([
-            'data' => $channel->inventorySources,
-        ]);
+        return $this->successResponse($channel->inventorySources);
     }
 
     public function syncInventorySources(Request $request, Channel $channel): JsonResponse
     {
+        Gate::authorize('syncInventorySources', $channel);
+
         $validated = $request->validate([
             'inventory_source_ids' => ['required', 'array'],
             'inventory_source_ids.*.id' => [
@@ -116,30 +112,29 @@ class ChannelController extends Controller
 
         $channel->load('inventorySources');
 
-        return response()->json([
-            'message' => 'Inventory sources synced successfully.',
-            'data' => $channel->inventorySources,
-        ]);
+        return $this->successResponse($channel->inventorySources, 'Inventory sources synced successfully.');
     }
 
-    public function routingOrder(Channel $channel, InventoryRoutingService $routingService): JsonResponse
+    public function routingOrder(Channel $channel): JsonResponse
     {
-        return response()->json([
-            'data' => $routingService->getRoutingOrder($channel),
-        ]);
+        Gate::authorize('viewRouting', $channel);
+
+        return $this->successResponse($this->routingService->getRoutingOrder($channel));
     }
 
-    public function primarySource(Channel $channel, InventoryRoutingService $routingService): JsonResponse
+    public function primarySource(Channel $channel): JsonResponse
     {
-        $primary = $routingService->getPrimarySource($channel);
+        Gate::authorize('viewRouting', $channel);
 
-        return response()->json([
-            'data' => $primary,
-        ]);
+        $primary = $this->routingService->getPrimarySource($channel);
+
+        return $this->successResponse($primary);
     }
 
-    public function routeSource(Request $request, Channel $channel, InventoryRoutingService $routingService): JsonResponse
+    public function routeSource(Request $request, Channel $channel): JsonResponse
     {
+        Gate::authorize('routeSource', $channel);
+
         $validated = $request->validate([
             'preferred_source_id' => ['nullable', 'integer', 'exists:inventory_sources,id'],
             'country' => ['nullable', 'string', 'max:32'],
@@ -147,7 +142,7 @@ class ChannelController extends Controller
             'min_priority' => ['nullable', 'numeric', 'min:0'],
         ]);
 
-        $result = $routingService->getRoutedSourceWithMeta($channel, $validated);
+        $result = $this->routingService->getRoutedSourceWithMeta($channel, $validated);
 
         return response()->json([
             'data' => $result['source'],
@@ -159,18 +154,16 @@ class ChannelController extends Controller
         ]);
     }
 
-    public function canRoute(Request $request, Channel $channel, InventoryRoutingService $routingService): JsonResponse
+    public function canRoute(Request $request, Channel $channel): JsonResponse
     {
+        Gate::authorize('routeSource', $channel);
+
         $validated = $request->validate([
             'inventory_source_id' => ['required', 'integer', 'exists:inventory_sources,id'],
         ]);
 
-        $canRoute = $routingService->canRouteToSource($channel, $validated['inventory_source_id']);
+        $canRoute = $this->routingService->canRouteToSource($channel, $validated['inventory_source_id']);
 
-        return response()->json([
-            'data' => [
-                'can_route' => $canRoute,
-            ],
-        ]);
+        return $this->successResponse(['can_route' => $canRoute]);
     }
 }

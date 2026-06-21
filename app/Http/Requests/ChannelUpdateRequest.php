@@ -9,7 +9,8 @@ class ChannelUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $channel = $this->route('channel');
+        return $this->user()?->can('update', $channel) ?? false;
     }
 
     public function rules(): array

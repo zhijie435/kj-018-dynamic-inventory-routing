@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Exceptions\ForbiddenException;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -13,7 +14,10 @@ class RoleMiddleware
         $user = $request->user();
 
         if (! $user || ! in_array($user->role, $roles, true)) {
-            abort(403, '无权执行该操作。');
+            throw new ForbiddenException('无权执行该操作。', [
+                'required_roles' => $roles,
+                'user_role' => $user?->role,
+            ]);
         }
 
         return $next($request);

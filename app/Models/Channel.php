@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Services\ChannelInventoryStateManager;
 use Database\Factories\ChannelFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\App;
 
 /**
  * @mixin ChannelFactory
@@ -60,69 +62,7 @@ class Channel extends Model
 
     public function syncInventorySources(array $inventorySourceIds): void
     {
-        $rawEntries = [];
-
-        foreach ($inventorySourceIds as $index => $id) {
-            if (is_array($id)) {
-                $sourceId = $id['id'];
-                $isPrimary = $id['is_primary'] ?? false;
-                $sortOrder = $id['sort_order'] ?? $index;
-            } else {
-                $sourceId = $id;
-                $isPrimary = ($index === 0);
-                $sortOrder = $index;
-            }
-            $rawEntries[] = [
-                'id' => $sourceId,
-                'is_primary' => $isPrimary,
-                'sort_order' => $sortOrder,
-            ];
-        }
-
-        $sourceIds = array_column($rawEntries, 'id');
-
-        $activeSources = InventorySource::query()
-            ->whereIn('id', $sourceIds)
-            ->where('is_active', true)
-            ->pluck('id')
-            ->toArray();
-
-        $activeIdSet = array_flip($activeSources);
-
-        $filteredEntries = [];
-        foreach ($rawEntries as $entry) {
-            if (isset($activeIdSet[$entry['id']])) {
-                $filteredEntries[] = $entry;
-            }
-        }
-
-        $syncData = [];
-        $primaryFound = false;
-
-        foreach ($filteredEntries as $entry) {
-            $isPrimary = (bool) $entry['is_primary'];
-
-            if ($isPrimary && !$primaryFound) {
-                $primaryFound = true;
-            } elseif ($isPrimary && $primaryFound) {
-                $isPrimary = false;
-            }
-
-            $syncData[$entry['id']] = [
-                'sort_order' => $entry['sort_order'],
-                'is_primary' => $isPrimary,
-            ];
-        }
-
-        if (!$primaryFound && !empty($syncData)) {
-            uasort($syncData, function ($a, $b) {
-                return $a['sort_order'] <=> $b['sort_order'];
-            });
-            $firstKey = array_key_first($syncData);
-            $syncData[$firstKey]['is_primary'] = true;
-        }
-
-        $this->allInventorySources()->sync($syncData);
+        App::make(ChannelInventoryStateManager::class)->syncSources($this, $inventorySourceIds);
     }
 
     public function syncInventorySourcesPreservingInactive(array $inventorySourceIds): void
@@ -146,76 +86,7 @@ class Channel extends Model
 
     public function removeInactiveInventorySources(): void
     {
-        $pivotTable = $this->allInventorySources()->getTable();
-        $foreignPivotKey = $this->allInventorySources()->getForeignPivotKeyName();
-
-        $allRows = \DB::table($pivotTable)
-            ->where($foreignPivotKey, $this->id)
-            ->join('inventory_sources', 'inventory_sources.id', '=', 'inventory_source_id')
-            ->orderBy('sort_order')
-            ->select('inventory_source_id', 'sort_order', 'is_primary', 'inventory_sources.is_active')
-            ->get();
-
-        $inactiveIds = $allRows->filter(function ($row) {
-            return !$row->is_active;
-        })->pluck('inventory_source_id')->toArray();
-
-        if (!empty($inactiveIds)) {
-            \DB::table($pivotTable)
-                ->where($foreignPivotKey, $this->id)
-                ->whereIn('inventory_source_id', $inactiveIds)
-                ->delete();
-        }
-
-        $remainingRows = \DB::table($pivotTable)
-            ->where($foreignPivotKey, $this->id)
-            ->join('inventory_sources', 'inventory_sources.id', '=', 'inventory_source_id')
-            ->orderBy('sort_order')
-            ->orderBy('inventory_sources.priority', 'DESC')
-            ->orderBy('inventory_sources.country')
-            ->select('inventory_source_id', 'sort_order', 'is_primary')
-            ->get();
-
-        $needsReindex = false;
-        foreach ($remainingRows as $index => $row) {
-            if ($row->sort_order != $index) {
-                $needsReindex = true;
-                break;
-            }
-        }
-
-        if (empty($inactiveIds) && !$needsReindex) {
-            return;
-        }
-
-        $primaryFound = false;
-
-        foreach ($remainingRows as $index => $row) {
-            $isPrimary = (bool) $row->is_primary;
-            if ($isPrimary && !$primaryFound) {
-                $primaryFound = true;
-            } elseif ($isPrimary && $primaryFound) {
-                $isPrimary = false;
-            }
-
-            \DB::table($pivotTable)
-                ->where($foreignPivotKey, $this->id)
-                ->where('inventory_source_id', $row->inventory_source_id)
-                ->update([
-                    'sort_order' => $index,
-                    'is_primary' => $isPrimary,
-                ]);
-        }
-
-        if (!$primaryFound && $remainingRows->isNotEmpty()) {
-            $firstRow = $remainingRows->first();
-            \DB::table($pivotTable)
-                ->where($foreignPivotKey, $this->id)
-                ->where('inventory_source_id', $firstRow->inventory_source_id)
-                ->update([
-                    'is_primary' => true,
-                ]);
-        }
+        App::make(ChannelInventoryStateManager::class)->removeInactiveAndRebuild($this);
     }
 
     public function hasInventorySource(int $inventorySourceId): bool

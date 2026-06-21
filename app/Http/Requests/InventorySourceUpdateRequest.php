@@ -8,7 +8,8 @@ class InventorySourceUpdateRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        $inventorySource = $this->route('inventorySource');
+        return $this->user()?->can('update', $inventorySource) ?? false;
     }
 
     public function rules(): array

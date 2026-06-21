@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Channel;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -9,7 +10,7 @@ class ChannelStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user()?->can('create', Channel::class) ?? false;
     }
 
     public function rules(): array

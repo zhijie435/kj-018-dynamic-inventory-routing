@@ -2,11 +2,13 @@
 
 namespace App\Models;
 
+use App\Services\ChannelInventoryStateManager;
 use Database\Factories\InventorySourceFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Support\Facades\App;
 
 /**
  * @mixin InventorySourceFactory
@@ -44,40 +46,7 @@ class InventorySource extends Model
 
     protected static function handleDeactivation(self $source): void
     {
-        $channels = $source->channels()->get();
-
-        $source->channels()->detach();
-
-        foreach ($channels as $channel) {
-            $remainingSources = $channel->inventorySources()
-                ->orderByPivot('sort_order')
-                ->orderBy('inventory_sources.priority', 'DESC')
-                ->orderBy('inventory_sources.country')
-                ->get();
-
-            $primaryFound = false;
-
-            foreach ($remainingSources as $index => $remainingSource) {
-                $isPrimary = (bool) $remainingSource->pivot->is_primary;
-                if ($isPrimary && !$primaryFound) {
-                    $primaryFound = true;
-                } elseif ($isPrimary && $primaryFound) {
-                    $isPrimary = false;
-                }
-
-                $channel->allInventorySources()->updateExistingPivot($remainingSource->id, [
-                    'sort_order' => $index,
-                    'is_primary' => $isPrimary,
-                ]);
-            }
-
-            if (!$primaryFound && $remainingSources->isNotEmpty()) {
-                $firstSource = $remainingSources->first();
-                $channel->allInventorySources()->updateExistingPivot($firstSource->id, [
-                    'is_primary' => true,
-                ]);
-            }
-        }
+        App::make(ChannelInventoryStateManager::class)->handleSourceDeactivation($source);
     }
 
     public function channels(): BelongsToMany

@@ -2,13 +2,14 @@
 
 namespace App\Http\Requests;
 
+use App\Models\InventorySource;
 use Illuminate\Foundation\Http\FormRequest;
 
 class InventorySourceStoreRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user()?->can('create', InventorySource::class) ?? false;
     }
 
     public function rules(): array

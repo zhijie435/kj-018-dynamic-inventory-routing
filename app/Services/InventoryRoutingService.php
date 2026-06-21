@@ -2,28 +2,29 @@
 
 namespace App\Services;
 
+use App\Exceptions\InventoryRoutingException;
 use App\Models\Channel;
 use App\Models\InventorySource;
+use App\Repositories\ChannelRepository;
 use Illuminate\Database\Eloquent\Collection;
 
 class InventoryRoutingService
 {
+    protected ChannelRepository $channelRepository;
+
+    public function __construct(?ChannelRepository $channelRepository = null)
+    {
+        $this->channelRepository = $channelRepository ?? app(ChannelRepository::class);
+    }
+
     public function getAvailableSources(Channel $channel): Collection
     {
-        return $channel->inventorySources()
-            ->where('inventory_sources.is_active', true)
-            ->orderByPivot('sort_order')
-            ->orderBy('inventory_sources.priority', 'DESC')
-            ->orderBy('inventory_sources.country')
-            ->get();
+        return $this->channelRepository->getActiveInventorySources($channel);
     }
 
     public function getPrimarySource(Channel $channel): ?InventorySource
     {
-        return $channel->inventorySources()
-            ->wherePivot('is_primary', true)
-            ->where('inventory_sources.is_active', true)
-            ->first();
+        return $this->channelRepository->getPrimaryInventorySource($channel);
     }
 
     public function getRoutedSource(Channel $channel, array $options = []): ?InventorySource
@@ -35,17 +36,7 @@ class InventoryRoutingService
 
     public function getRoutedSourceWithMeta(Channel $channel, array $options = []): array
     {
-        $preferredSourceId = $options['preferred_source_id'] ?? null;
-        $country = $options['country'] ?? null;
-        $city = $options['city'] ?? null;
-        $minPriority = $options['min_priority'] ?? null;
-
-        $sources = $channel->inventorySources()
-            ->where('inventory_sources.is_active', true)
-            ->orderByPivot('sort_order')
-            ->orderBy('inventory_sources.priority', 'DESC')
-            ->orderBy('inventory_sources.country')
-            ->get();
+        $sources = $this->getAvailableSources($channel);
 
         if ($sources->isEmpty()) {
             return [
@@ -56,72 +47,24 @@ class InventoryRoutingService
             ];
         }
 
-        if ($country) {
-            $countryMatch = $sources->firstWhere('country', $country);
-            if ($countryMatch) {
-                return [
-                    'source' => $countryMatch,
-                    'route_type' => 'country_match',
-                    'is_moq_direct' => false,
-                    'fallback_to_cn' => false,
-                    'matched_country' => $country,
-                ];
-            }
+        $strategies = [
+            fn () => $this->tryCountryMatch($sources, $options),
+            fn () => $this->tryPreferredSource($sources, $options),
+            fn () => $this->tryPriorityMatch($sources, $options),
+            fn () => $this->tryPrimarySource($sources),
+            fn () => $this->fallbackToFirst($sources),
+        ];
 
-            $cnMatch = $sources->firstWhere('country', 'CN');
-            if ($cnMatch) {
-                return [
-                    'source' => $cnMatch,
-                    'route_type' => 'cn_moq_fallback',
-                    'is_moq_direct' => true,
-                    'fallback_to_cn' => true,
-                    'requested_country' => $country,
-                    'matched_country' => 'CN',
-                ];
+        foreach ($strategies as $strategy) {
+            $result = $strategy();
+            if ($result !== null) {
+                return $result;
             }
-        }
-
-        if ($preferredSourceId) {
-            $preferred = $sources->firstWhere('id', $preferredSourceId);
-            if ($preferred) {
-                return [
-                    'source' => $preferred,
-                    'route_type' => 'preferred_source',
-                    'is_moq_direct' => false,
-                    'fallback_to_cn' => false,
-                    'preferred_source_id' => $preferredSourceId,
-                ];
-            }
-        }
-
-        if ($minPriority !== null) {
-            $priorityMatch = $sources->first(function ($source) use ($minPriority) {
-                return $source->priority >= $minPriority;
-            });
-            if ($priorityMatch) {
-                return [
-                    'source' => $priorityMatch,
-                    'route_type' => 'priority_match',
-                    'is_moq_direct' => false,
-                    'fallback_to_cn' => false,
-                    'min_priority' => $minPriority,
-                ];
-            }
-        }
-
-        $primary = $sources->firstWhere('pivot.is_primary', true);
-        if ($primary) {
-            return [
-                'source' => $primary,
-                'route_type' => 'primary',
-                'is_moq_direct' => false,
-                'fallback_to_cn' => false,
-            ];
         }
 
         return [
-            'source' => $sources->first(),
-            'route_type' => 'first_available',
+            'source' => null,
+            'route_type' => 'none',
             'is_moq_direct' => false,
             'fallback_to_cn' => false,
         ];
@@ -141,20 +84,19 @@ class InventoryRoutingService
 
     public function canRouteToSource(Channel $channel, int $inventorySourceId): bool
     {
-        return $channel->inventorySources()
-            ->where('inventory_source_id', $inventorySourceId)
-            ->where('inventory_sources.is_active', true)
-            ->exists();
+        return $this->channelRepository->hasInventorySource($channel, $inventorySourceId);
+    }
+
+    public function assertCanRouteToSource(Channel $channel, int $inventorySourceId): void
+    {
+        if (!$this->canRouteToSource($channel, $inventorySourceId)) {
+            throw InventoryRoutingException::cannotRouteToSource($channel->id, $inventorySourceId);
+        }
     }
 
     public function getRoutingOrder(Channel $channel): array
     {
-        return $channel->inventorySources()
-            ->where('inventory_sources.is_active', true)
-            ->orderByPivot('sort_order')
-            ->orderBy('inventory_sources.priority', 'DESC')
-            ->orderBy('inventory_sources.country')
-            ->get()
+        return $this->getAvailableSources($channel)
             ->map(function ($source) {
                 return [
                     'id' => $source->id,
@@ -168,5 +110,113 @@ class InventoryRoutingService
                 ];
             })
             ->toArray();
+    }
+
+    private function tryCountryMatch(Collection $sources, array $options): ?array
+    {
+        $country = $options['country'] ?? null;
+        if (!$country) {
+            return null;
+        }
+
+        $countryMatch = $sources->firstWhere('country', $country);
+        if ($countryMatch) {
+            return [
+                'source' => $countryMatch,
+                'route_type' => 'country_match',
+                'is_moq_direct' => false,
+                'fallback_to_cn' => false,
+                'matched_country' => $country,
+            ];
+        }
+
+        $cnMatch = $sources->firstWhere('country', 'CN');
+        if ($cnMatch) {
+            return [
+                'source' => $cnMatch,
+                'route_type' => 'cn_moq_fallback',
+                'is_moq_direct' => true,
+                'fallback_to_cn' => true,
+                'requested_country' => $country,
+                'matched_country' => 'CN',
+            ];
+        }
+
+        return null;
+    }
+
+    private function tryPreferredSource(Collection $sources, array $options): ?array
+    {
+        $preferredSourceId = $options['preferred_source_id'] ?? null;
+        if (!$preferredSourceId) {
+            return null;
+        }
+
+        $preferred = $sources->firstWhere('id', $preferredSourceId);
+        if ($preferred) {
+            return [
+                'source' => $preferred,
+                'route_type' => 'preferred_source',
+                'is_moq_direct' => false,
+                'fallback_to_cn' => false,
+                'preferred_source_id' => $preferredSourceId,
+            ];
+        }
+
+        return null;
+    }
+
+    private function tryPriorityMatch(Collection $sources, array $options): ?array
+    {
+        $minPriority = $options['min_priority'] ?? null;
+        if ($minPriority === null) {
+            return null;
+        }
+
+        $priorityMatch = $sources->first(function ($source) use ($minPriority) {
+            return $source->priority >= $minPriority;
+        });
+
+        if ($priorityMatch) {
+            return [
+                'source' => $priorityMatch,
+                'route_type' => 'priority_match',
+                'is_moq_direct' => false,
+                'fallback_to_cn' => false,
+                'min_priority' => $minPriority,
+            ];
+        }
+
+        return null;
+    }
+
+    private function tryPrimarySource(Collection $sources): ?array
+    {
+        $primary = $sources->firstWhere('pivot.is_primary', true);
+        if ($primary) {
+            return [
+                'source' => $primary,
+                'route_type' => 'primary',
+                'is_moq_direct' => false,
+                'fallback_to_cn' => false,
+            ];
+        }
+
+        return null;
+    }
+
+    private function fallbackToFirst(Collection $sources): ?array
+    {
+        $first = $sources->first();
+        if (!$first) {
+            return null;
+        }
+
+        return [
+            'source' => $first,
+            'route_type' => 'first_available',
+            'is_moq_direct' => false,
+            'fallback_to_cn' => false,
+        ];
     }
 }
